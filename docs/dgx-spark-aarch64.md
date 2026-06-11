@@ -202,6 +202,8 @@ scripts/dgx_spark_run_smoke.sh --engine all --profile quick --watch
 scripts/dgx_spark_run_smoke.sh --engine trainside --profile standard --watch
 scripts/dgx_spark_run_smoke.sh --engine sglang --profile quick --watch
 scripts/dgx_spark_run_smoke.sh --engine vllmomni --profile quick --watch
+scripts/dgx_spark_status.sh
+scripts/dgx_spark_clean.sh --dry-run
 ```
 
 Engines: `trainside`, `sglang`, `vllmomni`, or `all`. The `quick` profile uses
