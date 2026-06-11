@@ -190,6 +190,37 @@ For every native-extension failure, record:
 - compiler and CUDA header versions if building from source
 - GB10 compute capability reported by `scripts/dgx_spark_probe.py`
 
+## Lightweight local observability
+
+Use `scripts/dgx_spark_watch.py` to wrap long smoke runs and keep their logs and
+host/GPU samples together. It writes a per-run directory containing:
+
+- `command.log` — redacted stdout/stderr from the wrapped command
+- `metrics.jsonl` — periodic load, memory, and `nvidia-smi` samples
+- `metadata.json` — command and run metadata
+- `summary.json` — exit code, elapsed time, and peak GPU stats
+
+Example:
+
+```bash
+source .venv-spark/bin/activate
+python scripts/dgx_spark_watch.py \
+  --label sd35-trainside-b2 \
+  --log-dir outputs/dgx-spark-observe \
+  --interval 5 \
+  -- python -m unirl.train_diffusion --config-name=diffusion/sd3_trainside \
+    num_devices=1 +devices_per_node=1 batch_size=2 \
+    data_source.args.algorithm.prompts_per_rollout=2 \
+    sampling.samples_per_prompt=2 sampling.num_inference_steps=2 \
+    sampling.scheduler.num_timesteps=2 sampling.scheduler.num_sde_steps=1 \
+    sampling.scheduler.timestep_fraction=[0,1] \
+    rollout.forward_batch_size=1 reward.backend.config.batch_size=1 \
+    stack.micro_batch_size=1 stack.num_updates_per_batch=1 +num_rollouts=1
+```
+
+`outputs/` is ignored by git. The watcher redacts Hugging Face tokens in captured
+output, but the wrapped command should still avoid printing secrets.
+
 ## Known risks
 
 - x86_64 wheels are not usable on DGX Spark.
