@@ -93,19 +93,92 @@ or large production checkpoint. On DGX Spark this completed one rollout with
 reward standard deviation degrees of freedom and skip an optimizer step when no
 micro-batch reports backward.
 
-## Engine triage order
+## Real SD3.5 trainside smoke run
+
+The gated SD3.5 checkpoint was validated on DGX Spark using a read-only Hugging
+Face token with access to `stabilityai/stable-diffusion-3.5-medium`:
+
+```bash
+source .venv-spark/bin/activate
+export PRETRAINED_MODEL=stabilityai/stable-diffusion-3.5-medium
+export REPORT_TO_WANDB=false
+python -m unirl.train_diffusion --config-name=diffusion/sd3_trainside \
+  num_devices=1 +devices_per_node=1 batch_size=2 \
+  data_source.args.algorithm.prompts_per_rollout=2 \
+  sampling.samples_per_prompt=2 sampling.num_inference_steps=2 \
+  sampling.scheduler.num_timesteps=2 sampling.scheduler.num_sde_steps=1 \
+  sampling.scheduler.timestep_fraction=[0,1] \
+  rollout.forward_batch_size=1 reward.backend.config.batch_size=1 \
+  stack.micro_batch_size=1 stack.num_updates_per_batch=1 +num_rollouts=1
+```
+
+This reaches `rollout 1/1` and reports a non-zero `grad_norm`. On the tested GB10
+host, the same trainside path also completed with `batch_size=16`,
+`prompts_per_rollout=16`, `samples_per_prompt=2`, `num_inference_steps=10`, and
+`num_sde_steps=3`.
+
+Two scheduler details matter for reduced tests:
+
+- `num_sde_steps=0` is not a valid FlowGRPO optimizer-step smoke test because
+  FlowGRPO expects an `sde_logp` anchor.
+- `num_inference_steps=1` with `num_sde_steps=1` can fail because the scheduler
+  timestep pool is empty. Use at least the 2-step settings above.
+
+## Engine triage order and validated engines
 
 After the smoke-test stack passes, test native engines one at a time in separate
-venvs:
+venvs. Do not mix `sglang` and `vllm` in the same environment; their CUDA/PyTorch
+pins are intentionally conflicting.
 
-1. `sglang-kernel`
-2. `flash-attn` / `flash-attn-4`
-3. `sglang[diffusion]`
-4. `vllm`
-5. `vllm-omni`
+### SGLang
 
-Do not mix `sglang` and `vllm` in the same environment; their CUDA/PyTorch pins
-are intentionally conflicting.
+```bash
+python3 -m venv .venv-sglang
+source .venv-sglang/bin/activate
+python -m pip install -U pip uv
+uv pip install -e ".[sglang,train,infer]" --prerelease=allow
+python -m sglang.check_env
+python -m unirl.train_diffusion --config-name=diffusion/sd3_sglang_replay_colocate \
+  num_devices=1 +devices_per_node=1 batch_size=2 num_rollouts=1 \
+  data_source.args.algorithm.prompts_per_rollout=2 \
+  sampling.samples_per_prompt=2 sampling.num_inference_steps=2 \
+  sampling.scheduler.num_timesteps=2 sampling.scheduler.num_sde_steps=1 \
+  sampling.scheduler.timestep_fraction=[0,1] \
+  rollout.config.forward_batch_size=1 rollout.config.num_gpus=1 rollout.config.tp_size=1 \
+  reward.backend.config.batch_size=1 stack.micro_batch_size=1 stack.num_updates_per_batch=1
+```
+
+This reaches `rollout 1/1` through `SGLangRolloutEngine`. If `xatlas` builds from
+source on a minimal Ubuntu/Python install, Python development headers are
+required. Without them the first failure is `fatal error: Python.h: No such file
+or directory`. The validated host used `python3.12-dev` headers; installing the
+system package is preferred when available.
+
+Some SGLang SD3.5 text-encoder loaders may report duplicate safetensors keys and
+fall back to native loaders when both `model.safetensors` and
+`model.fp16.safetensors` are present. This was non-fatal in the validated smoke
+run.
+
+### vLLM / vLLM-Omni
+
+```bash
+python3 -m venv .venv-vllm
+source .venv-vllm/bin/activate
+python -m pip install -U pip uv
+uv pip install -e ".[vllm,train,infer]"
+python -m unirl.train_diffusion --config-name=diffusion/sd3_vllmomni \
+  num_devices=1 +devices_per_node=1 batch_size=2 +num_rollouts=1 \
+  data_source.args.algorithm.prompts_per_rollout=2 \
+  sampling.samples_per_prompt=2 sampling.num_inference_steps=2 \
+  sampling.scheduler.num_timesteps=2 sampling.scheduler.num_sde_steps=1 \
+  sampling.scheduler.timestep_fraction=[0,1] \
+  rollout.config.default_num_inference_steps=2 \
+  reward.backend.config.batch_size=1 stack.micro_batch_size=1 stack.num_updates_per_batch=1
+```
+
+This reaches `rollout 1/1` through `VLLMOmniRolloutEngine`. Use
+`+num_rollouts=1` for this recipe because `num_rollouts` is not present in the
+base config.
 
 For every native-extension failure, record:
 
