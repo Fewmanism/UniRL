@@ -190,10 +190,28 @@ For every native-extension failure, record:
 - compiler and CUDA header versions if building from source
 - GB10 compute capability reported by `scripts/dgx_spark_probe.py`
 
-## Lightweight local observability
+## Local smoke runner and observability
 
-Use `scripts/dgx_spark_watch.py` to wrap long smoke runs and keep their logs and
-host/GPU samples together. It writes a per-run directory containing:
+Use `scripts/dgx_spark_run_smoke.sh` for this fork's DGX Spark day-to-day health
+check. It chooses the right local venv per engine, loads `.env` through dotenvx
+when available, disables WandB/telemetry for smoke tests, optionally stops Ray,
+and can wrap every run with the watcher below.
+
+```bash
+scripts/dgx_spark_run_smoke.sh --engine all --profile quick --watch
+scripts/dgx_spark_run_smoke.sh --engine trainside --profile standard --watch
+scripts/dgx_spark_run_smoke.sh --engine sglang --profile quick --watch
+scripts/dgx_spark_run_smoke.sh --engine vllmomni --profile quick --watch
+```
+
+Engines: `trainside`, `sglang`, `vllmomni`, or `all`. The `quick` profile uses
+the 2-step optimizer-smoke settings validated above. The `standard` profile uses
+the validated medium trainside settings and currently keeps SGLang/VLLM-Omni on
+quick until those engines are scaled locally.
+
+Use `scripts/dgx_spark_watch.py` directly to wrap arbitrary long smoke runs and
+keep their logs and host/GPU samples together. It writes a per-run directory
+containing:
 
 - `command.log` — redacted stdout/stderr from the wrapped command
 - `metrics.jsonl` — periodic load, memory, and `nvidia-smi` samples
