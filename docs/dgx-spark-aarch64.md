@@ -203,6 +203,10 @@ scripts/dgx_spark_run_smoke.sh --engine trainside --profile standard --watch
 scripts/dgx_spark_run_smoke.sh --engine sglang --profile quick --watch
 scripts/dgx_spark_run_smoke.sh --engine vllmomni --profile quick --watch
 scripts/dgx_spark_status.sh
+scripts/dgx_spark_summarize_runs.py --limit 20
+scripts/dgx_spark_summarize_runs.py --limit 20 --format csv > outputs/dgx-spark-observe/summary.csv
+scripts/dgx_spark_replay_run.py
+scripts/dgx_spark_replay_run.py outputs/dgx-spark-observe/20260611-205007-dgx-vllmomni-quick --watch --execute
 scripts/dgx_spark_clean.sh --dry-run
 ```
 
@@ -210,6 +214,17 @@ Engines: `trainside`, `sglang`, `vllmomni`, or `all`. The `quick` profile uses
 the 2-step optimizer-smoke settings validated above. The `standard` profile uses
 the validated medium trainside settings and currently keeps SGLang/VLLM-Omni on
 quick until those engines are scaled locally.
+
+`scripts/dgx_spark_summarize_runs.py` reads watcher directories and extracts
+exit codes, elapsed time, reward/loss/grad_norm, and peak GPU samples into a
+stable table/JSON/CSV. Use it after a run matrix to compare experiments without
+opening each `command.log` manually.
+
+`tools` in this fork do not yet implement model checkpoint/resume because the
+current training configs do not expose an obvious checkpoint/resume key path.
+Until that is wired, `scripts/dgx_spark_replay_run.py` provides command-level
+continuity: it reads a watcher `metadata.json`, prints the exact captured command,
+and can optionally execute it again, wrapped by the watcher.
 
 Use `scripts/dgx_spark_watch.py` directly to wrap arbitrary long smoke runs and
 keep their logs and host/GPU samples together. It writes a per-run directory
