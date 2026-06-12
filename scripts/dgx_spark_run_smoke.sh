@@ -102,7 +102,11 @@ run_cmd() {
     return 0
   fi
   if [[ "$RAY_STOP" == 1 ]]; then
-    ray stop --force >/tmp/unirl-dgx-spark-ray-stop.log 2>&1 || true
+    for ray_bin in .venv-spark/bin/ray .venv-sglang/bin/ray .venv-vllm/bin/ray ray; do
+      if command -v "$ray_bin" >/dev/null 2>&1; then
+        "$ray_bin" stop --force >>/tmp/unirl-dgx-spark-ray-stop.log 2>&1 || true
+      fi
+    done
   fi
   if [[ "$WATCH" == 1 ]]; then
     local run_label="${LABEL:-$label}"

@@ -69,10 +69,15 @@ require_yes() {
 }
 
 if [[ "$RAY" == 1 ]]; then
-  if command -v ray >/dev/null 2>&1; then
-    run ray stop --force
-  else
-    echo 'ray command not found; skipping Ray stop'
+  stopped=0
+  for ray_bin in .venv-spark/bin/ray .venv-sglang/bin/ray .venv-vllm/bin/ray ray; do
+    if command -v "$ray_bin" >/dev/null 2>&1; then
+      run "$ray_bin" stop --force || true
+      stopped=1
+    fi
+  done
+  if [[ "$stopped" == 0 ]]; then
+    echo 'ray command not found in known venvs; skipping Ray stop'
   fi
 fi
 
@@ -94,7 +99,7 @@ fi
 if [[ "$KILL_ORPHANS" == 1 ]]; then
   require_yes 'kill orphan UniRL/SGLang/vLLM processes'
   printf '\n== kill orphan training/engine processes ==\n'
-  mapfile -t pids < <(pgrep -f 'unirl.train_diffusion|sglang|vllm' || true)
+  mapfile -t pids < <(pgrep -f 'unirl.train_diffusion|sglang|vllm|sgl_diffusion::scheduler' || true)
   if [[ ${#pids[@]} -eq 0 ]]; then
     echo 'none'
   else

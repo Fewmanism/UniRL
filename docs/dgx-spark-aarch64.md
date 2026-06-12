@@ -239,6 +239,11 @@ same watcher data plus `local_runs/index.jsonl`. It writes dated reports and a
 run table, failed runs, artifacts, registry details, and next actions. Matrix and
 checkpoint smoke scripts refresh this report automatically after successful runs.
 
+`scripts/dgx_spark_clean.sh` stops Ray through all known local venvs and can kill
+orphan UniRL/SGLang/vLLM workers, including `sgl_diffusion::scheduler`, when run
+with `--kill-orphans --yes`. Use this after failed SGLang/VLLM experiments before
+starting another GPU run.
+
 Full FSDP checkpoint/resume is available for the local trainside path through
 Hydra overrides consumed by `unirl.train_diffusion`:
 
