@@ -200,8 +200,12 @@ and can wrap every run with the watcher below.
 ```bash
 scripts/dgx_spark_run_smoke.sh --engine all --profile quick --watch
 scripts/dgx_spark_run_smoke.sh --engine trainside --profile standard --watch
-scripts/dgx_spark_run_smoke.sh --engine sglang --profile quick --watch
-scripts/dgx_spark_run_smoke.sh --engine vllmomni --profile quick --watch
+scripts/dgx_spark_run_smoke.sh --engine sglang --profile scale4 --watch
+scripts/dgx_spark_run_smoke.sh --engine sglang --profile scale10 --watch
+scripts/dgx_spark_run_smoke.sh --engine vllmomni --profile scale4 --watch
+scripts/dgx_spark_run_smoke.sh --engine vllmomni --profile scale10 --watch
+scripts/dgx_spark_run_matrix.sh --watch --continue-on-error
+scripts/dgx_spark_checkpoint_smoke.sh --watch
 scripts/dgx_spark_status.sh
 scripts/dgx_spark_summarize_runs.py --limit 20
 scripts/dgx_spark_summarize_runs.py --limit 20 --format csv > outputs/dgx-spark-observe/summary.csv
@@ -211,20 +215,33 @@ scripts/dgx_spark_clean.sh --dry-run
 ```
 
 Engines: `trainside`, `sglang`, `vllmomni`, or `all`. The `quick` profile uses
-the 2-step optimizer-smoke settings validated above. The `standard` profile uses
-the validated medium trainside settings and currently keeps SGLang/VLLM-Omni on
-quick until those engines are scaled locally.
+the 2-step optimizer-smoke settings validated above. `scale4` and `scale10` keep
+batch size small while increasing SD3 denoising/SDE steps. The `standard` profile
+uses the validated medium trainside settings and maps SGLang/VLLM-Omni to
+`scale10`. `scripts/dgx_spark_run_matrix.sh` runs the local scale matrix and
+refreshes `outputs/dgx-spark-observe/summary.csv`.
+
+`scripts/dgx_spark_checkpoint_smoke.sh` verifies experiment continuity for the
+trainside path: one quick rollout saves full FSDP state plus `lora_adapter.pt`,
+then a second quick rollout resumes from that checkpoint and saves again. Artifacts
+are written under `local_runs/checkpoints/` and ignored by git.
 
 `scripts/dgx_spark_summarize_runs.py` reads watcher directories and extracts
 exit codes, elapsed time, reward/loss/grad_norm, and peak GPU samples into a
 stable table/JSON/CSV. Use it after a run matrix to compare experiments without
 opening each `command.log` manually.
 
-`tools` in this fork do not yet implement model checkpoint/resume because the
-current training configs do not expose an obvious checkpoint/resume key path.
-Until that is wired, `scripts/dgx_spark_replay_run.py` provides command-level
-continuity: it reads a watcher `metadata.json`, prints the exact captured command,
-and can optionally execute it again, wrapped by the watcher.
+Full FSDP checkpoint/resume is available for the local trainside path through
+Hydra overrides consumed by `unirl.train_diffusion`:
+
+- `+checkpoint_dir=...`
+- `+checkpoint_interval=N`
+- `+resume_checkpoint_dir=...`
+- `+save_lora_checkpoint=true|false`
+
+Use `scripts/dgx_spark_replay_run.py` for command-level continuity as a complement:
+it reads a watcher `metadata.json`, prints the exact captured command, and can
+optionally execute it again, wrapped by the watcher.
 
 Use `scripts/dgx_spark_watch.py` directly to wrap arbitrary long smoke runs and
 keep their logs and host/GPU samples together. It writes a per-run directory

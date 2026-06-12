@@ -13,7 +13,7 @@ Usage: scripts/dgx_spark_run_smoke.sh [options]
 
 Options:
   --engine ENGINE     trainside | sglang | vllmomni | all (default: trainside)
-  --profile PROFILE   quick | standard (default: quick)
+  --profile PROFILE   quick | scale4 | scale10 | standard (default: quick)
   --watch             Wrap the run with scripts/dgx_spark_watch.py
   --label LABEL       Label used by watcher (default: dgx-ENGINE-PROFILE)
   --log-dir DIR       Watcher output dir (default: outputs/dgx-spark-observe)
@@ -27,16 +27,24 @@ Profiles:
     batch_size=2, prompts_per_rollout=2, samples_per_prompt=2,
     num_inference_steps=2, num_sde_steps=1, timestep_fraction=[0,1]
 
+  scale4:
+    batch_size=2, prompts_per_rollout=2, samples_per_prompt=2,
+    num_inference_steps=4, num_sde_steps=1, timestep_fraction=[0,1]
+
+  scale10:
+    batch_size=2, prompts_per_rollout=2, samples_per_prompt=2,
+    num_inference_steps=10, num_sde_steps=3, timestep_fraction=[0,0.5]
+
   standard:
-    trainside only currently: batch_size=16, prompts_per_rollout=16,
+    trainside: batch_size=16, prompts_per_rollout=16,
     samples_per_prompt=2, num_inference_steps=10, num_sde_steps=3,
     timestep_fraction=[0,0.5]
-    sglang/vllmomni fall back to quick until scaled locally.
+    sglang/vllmomni currently map to scale10.
 
 Examples:
   scripts/dgx_spark_run_smoke.sh --engine trainside --watch
-  scripts/dgx_spark_run_smoke.sh --engine sglang --watch
-  scripts/dgx_spark_run_smoke.sh --engine vllmomni --watch
+  scripts/dgx_spark_run_smoke.sh --engine sglang --profile scale4 --watch
+  scripts/dgx_spark_run_smoke.sh --engine vllmomni --profile scale10 --watch
   scripts/dgx_spark_run_smoke.sh --engine all --profile quick --watch
 EOF
 }
@@ -66,7 +74,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$ENGINE" in trainside|sglang|vllmomni|all) ;; *) echo "Invalid --engine: $ENGINE" >&2; exit 2 ;; esac
-case "$PROFILE" in quick|standard) ;; *) echo "Invalid --profile: $PROFILE" >&2; exit 2 ;; esac
+case "$PROFILE" in quick|scale4|scale10|standard) ;; *) echo "Invalid --profile: $PROFILE" >&2; exit 2 ;; esac
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
@@ -123,30 +131,57 @@ materialize_cmd() {
   mapfile -d '' -t out_ref < <(with_env "$@")
 }
 
+add_profile_overrides() {
+  local -n arr=$1
+  local engine="$2"
+  local profile="$3"
+  local effective="$profile"
+  if [[ "$profile" == standard && "$engine" != trainside ]]; then
+    effective=scale10
+  fi
+  case "$effective" in
+    quick)
+      arr+=(batch_size=2 data_source.args.algorithm.prompts_per_rollout=2 sampling.num_inference_steps=2 sampling.scheduler.num_timesteps=2 sampling.scheduler.num_sde_steps=1 'sampling.scheduler.timestep_fraction=[0,1]')
+      ;;
+    scale4)
+      arr+=(batch_size=2 data_source.args.algorithm.prompts_per_rollout=2 sampling.num_inference_steps=4 sampling.scheduler.num_timesteps=4 sampling.scheduler.num_sde_steps=1 'sampling.scheduler.timestep_fraction=[0,1]')
+      ;;
+    scale10)
+      arr+=(batch_size=2 data_source.args.algorithm.prompts_per_rollout=2 sampling.num_inference_steps=10 sampling.scheduler.num_timesteps=10 sampling.scheduler.num_sde_steps=3 'sampling.scheduler.timestep_fraction=[0,0.5]')
+      ;;
+    standard)
+      arr+=(batch_size=16 data_source.args.algorithm.prompts_per_rollout=16 sampling.num_inference_steps=10 sampling.scheduler.num_timesteps=10 sampling.scheduler.num_sde_steps=3 'sampling.scheduler.timestep_fraction=[0,0.5]')
+      ;;
+  esac
+}
+
 trainside_cmd() {
   local -a common=(python -m unirl.train_diffusion --config-name=diffusion/sd3_trainside num_devices=1 +devices_per_node=1 sampling.samples_per_prompt=2 rollout.forward_batch_size=1 reward.backend.config.batch_size=1 stack.micro_batch_size=1 stack.num_updates_per_batch=1 +num_rollouts=1)
-  if [[ "$PROFILE" == standard ]]; then
-    common+=(batch_size=16 data_source.args.algorithm.prompts_per_rollout=16 sampling.num_inference_steps=10 sampling.scheduler.num_timesteps=10 sampling.scheduler.num_sde_steps=3 'sampling.scheduler.timestep_fraction=[0,0.5]')
-  else
-    common+=(batch_size=2 data_source.args.algorithm.prompts_per_rollout=2 sampling.num_inference_steps=2 sampling.scheduler.num_timesteps=2 sampling.scheduler.num_sde_steps=1 'sampling.scheduler.timestep_fraction=[0,1]')
-  fi
+  add_profile_overrides common trainside "$PROFILE"
   local -a cmd
   materialize_cmd cmd .venv-spark "${common[@]}"
   run_cmd "dgx-trainside-$PROFILE" "${cmd[@]}"
 }
 
 sglang_cmd() {
-  local -a common=(python -m unirl.train_diffusion --config-name=diffusion/sd3_sglang_replay_colocate num_devices=1 +devices_per_node=1 batch_size=2 num_rollouts=1 data_source.args.algorithm.prompts_per_rollout=2 sampling.samples_per_prompt=2 sampling.num_inference_steps=2 sampling.scheduler.num_timesteps=2 sampling.scheduler.num_sde_steps=1 'sampling.scheduler.timestep_fraction=[0,1]' rollout.config.forward_batch_size=1 rollout.config.num_gpus=1 rollout.config.tp_size=1 reward.backend.config.batch_size=1 stack.micro_batch_size=1 stack.num_updates_per_batch=1)
+  local -a common=(python -m unirl.train_diffusion --config-name=diffusion/sd3_sglang_replay_colocate num_devices=1 +devices_per_node=1 num_rollouts=1 sampling.samples_per_prompt=2 rollout.config.forward_batch_size=1 rollout.config.num_gpus=1 rollout.config.tp_size=1 reward.backend.config.batch_size=1 stack.micro_batch_size=1 stack.num_updates_per_batch=1)
+  add_profile_overrides common sglang "$PROFILE"
   local -a cmd
   materialize_cmd cmd .venv-sglang "${common[@]}"
-  run_cmd "dgx-sglang-quick" "${cmd[@]}"
+  run_cmd "dgx-sglang-$PROFILE" "${cmd[@]}"
 }
 
 vllmomni_cmd() {
-  local -a common=(python -m unirl.train_diffusion --config-name=diffusion/sd3_vllmomni num_devices=1 +devices_per_node=1 batch_size=2 +num_rollouts=1 data_source.args.algorithm.prompts_per_rollout=2 sampling.samples_per_prompt=2 sampling.num_inference_steps=2 sampling.scheduler.num_timesteps=2 sampling.scheduler.num_sde_steps=1 'sampling.scheduler.timestep_fraction=[0,1]' rollout.config.default_num_inference_steps=2 reward.backend.config.batch_size=1 stack.micro_batch_size=1 stack.num_updates_per_batch=1)
+  local -a common=(python -m unirl.train_diffusion --config-name=diffusion/sd3_vllmomni num_devices=1 +devices_per_node=1 +num_rollouts=1 sampling.samples_per_prompt=2 reward.backend.config.batch_size=1 stack.micro_batch_size=1 stack.num_updates_per_batch=1)
+  add_profile_overrides common vllmomni "$PROFILE"
+  case "$PROFILE" in
+    quick) common+=(rollout.config.default_num_inference_steps=2) ;;
+    scale4) common+=(rollout.config.default_num_inference_steps=4) ;;
+    scale10|standard) common+=(rollout.config.default_num_inference_steps=10) ;;
+  esac
   local -a cmd
   materialize_cmd cmd .venv-vllm "${common[@]}"
-  run_cmd "dgx-vllmomni-quick" "${cmd[@]}"
+  run_cmd "dgx-vllmomni-$PROFILE" "${cmd[@]}"
 }
 
 case "$ENGINE" in

@@ -36,6 +36,7 @@ from unirl.train.fsdp_utils import (
     fsdp_onload,
     gather_state_dict,
     load_model_state_dict,
+    lora_state_dict,
     trainable_params,
 )
 from unirl.train.inject import (
@@ -282,6 +283,7 @@ class FSDPBackend(Remote):
     # Checkpoint
     # ------------------------------------------------------------------
 
+    @distributed(dispatch_mode=Dispatch.BROADCAST)
     def save(self, path: str) -> None:
         """Gather state on all ranks; write to ``path/checkpoint.pt`` on rank 0."""
         state: Dict[str, object] = {
@@ -296,6 +298,20 @@ class FSDPBackend(Remote):
         os.makedirs(path, exist_ok=True)
         torch.save(state, os.path.join(path, "checkpoint.pt"))
 
+    @distributed(dispatch_mode=Dispatch.BROADCAST)
+    def save_lora(self, path: str) -> None:
+        """Gather and write default-adapter LoRA weights to ``path/lora_adapter.pt``.
+
+        This is export-only. Full exact resume still uses :meth:`save` /
+        :meth:`load` because optimizer and scheduler state must be restored too.
+        """
+        state = lora_state_dict(self.model)
+        if self._rank != 0:
+            return
+        os.makedirs(path, exist_ok=True)
+        torch.save(state, os.path.join(path, "lora_adapter.pt"))
+
+    @distributed(dispatch_mode=Dispatch.BROADCAST)
     def load(self, path: str) -> None:
         checkpoint_path = os.path.join(path, "checkpoint.pt")
         if not os.path.exists(checkpoint_path):

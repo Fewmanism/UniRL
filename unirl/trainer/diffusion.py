@@ -457,17 +457,35 @@ class DiffusionTrainer(BaseTrainer):
         self._log_rollout(rollout_id, result, resp, step_time_s=time.perf_counter() - t0)
         return result, mean_reward
 
-    def train(self, *, num_rollouts: int, weight_sync_interval: int = 1) -> None:
+    def train(
+        self,
+        *,
+        num_rollouts: int,
+        weight_sync_interval: int = 1,
+        checkpoint_dir: Optional[str] = None,
+        checkpoint_interval: int = 0,
+        resume_checkpoint_dir: Optional[str] = None,
+        save_lora_checkpoint: bool = True,
+    ) -> None:
         """Minimal training loop: ``num_rollouts`` iterations of ``train_step``.
 
         ``weight_sync_interval``: sync the adapter into the engine every N
         rollouts (fused into ``train_step``'s generate; no-op trainside).
 
+        ``checkpoint_dir`` / ``checkpoint_interval`` provide local-fork experiment
+        continuity. Full FSDP state is saved via ``backend.save`` after matching
+        rollout ids; optional LoRA adapter export is written beside it for cheap
+        inspection/recovery. ``resume_checkpoint_dir`` loads a prior full
+        checkpoint before the first rollout.
+
         Deferred (out of scope for the first runnable trainer):
-        ``num_updates_per_batch`` multi-epoch replay, checkpoint cadence,
         evaluation cadence.
         """
         interval = max(1, weight_sync_interval)
+        ckpt_every = max(0, int(checkpoint_interval or 0))
+        if resume_checkpoint_dir:
+            logger.info("Loading checkpoint from %s", resume_checkpoint_dir)
+            self.backend.load(str(resume_checkpoint_dir))
         self._init_wandb(num_rollouts=num_rollouts)
         try:
             for rollout_id in range(num_rollouts):
@@ -491,5 +509,11 @@ class DiffusionTrainer(BaseTrainer):
                     result.grad_norm,
                     result.lr,
                 )
+                if checkpoint_dir and ckpt_every > 0 and (rollout_id + 1) % ckpt_every == 0:
+                    ckpt_path = os.path.join(str(checkpoint_dir), f"rollout-{rollout_id + 1:06d}")
+                    logger.info("Saving checkpoint to %s", ckpt_path)
+                    self.backend.save(ckpt_path)
+                    if save_lora_checkpoint:
+                        self.backend.save_lora(ckpt_path)
         finally:
             self._finish_wandb()

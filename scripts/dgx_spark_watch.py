@@ -119,6 +119,53 @@ def write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
 
+def git_metadata() -> dict[str, Any]:
+    """Return compact git state for run registry records."""
+    branch = run_text(["git", "branch", "--show-current"], timeout=3.0)
+    sha = run_text(["git", "rev-parse", "HEAD"], timeout=3.0)
+    status = run_text(["git", "status", "--porcelain"], timeout=3.0)
+    return {
+        "branch": branch,
+        "sha": sha,
+        "dirty": bool(status),
+    }
+
+
+def package_versions() -> dict[str, dict[str, str]]:
+    """Collect key package versions from known local venvs when present."""
+    packages = {
+        ".venv-spark": ["torch", "diffusers", "transformers", "ray"],
+        ".venv-sglang": ["torch", "sglang", "sglang-kernel", "flash-attn-4", "flashinfer-python"],
+        ".venv-vllm": ["torch", "vllm", "vllm-omni", "flashinfer-python"],
+    }
+    out: dict[str, dict[str, str]] = {}
+    for venv, names in packages.items():
+        py = Path(venv) / "bin" / "python"
+        if not py.exists():
+            continue
+        code = (
+            "import importlib.metadata as md, json, sys; "
+            "d={}; "
+            "\nfor n in sys.argv[1:]:\n"
+            "    try: d[n]=md.version(n)\n"
+            "    except Exception: d[n]=None\n"
+            "print(json.dumps(d, sort_keys=True))"
+        )
+        text = run_text([str(py), "-c", code, *names], timeout=10.0)
+        if text:
+            try:
+                out[venv] = json.loads(text)
+            except json.JSONDecodeError:
+                out[venv] = {"error": text}
+    return out
+
+
+def append_registry(registry_path: Path, record: dict[str, Any]) -> None:
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    with registry_path.open("a", buffering=1) as fh:
+        fh.write(json.dumps(record, sort_keys=True) + "\n")
+
+
 def stream_output(proc: subprocess.Popen[str], log_path: Path) -> None:
     assert proc.stdout is not None
     with log_path.open("a", buffering=1) as fh:
@@ -177,6 +224,7 @@ def main() -> int:
     parser.add_argument("--label", default="run", help="Human-readable run label used in the directory name")
     parser.add_argument("--log-dir", default="outputs/dgx-spark-observe", help="Base directory for logs")
     parser.add_argument("--interval", type=float, default=5.0, help="Metric sampling interval in seconds")
+    parser.add_argument("--registry", default="local_runs/index.jsonl", help="Append run records here; pass '' to disable")
     parser.add_argument("command", nargs=argparse.REMAINDER, help="Command to run after --")
     args = parser.parse_args()
 
@@ -200,6 +248,8 @@ def main() -> int:
         "cwd": os.getcwd(),
         "command": command,
         "interval_s": args.interval,
+        "git": git_metadata(),
+        "package_versions": package_versions(),
     }
     write_json(run_dir / "metadata.json", metadata)
 
@@ -248,6 +298,17 @@ def main() -> int:
         }
     )
     write_json(summary_json, summary)
+    if args.registry:
+        append_registry(
+            Path(args.registry),
+            {
+                "schema_version": 1,
+                "label": args.label,
+                "run_dir": str(run_dir),
+                "metadata": metadata,
+                "summary": summary,
+            },
+        )
     print(f"\n[dgx_spark_watch] summary: {summary_json}")
     return int(rc)
 

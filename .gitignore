@@ -65,6 +65,7 @@ wandb/
 outputs/
 logs/
 local/
+local_runs/
 !unirl/reward/local/
 !unirl/reward/local/**
 **/rollout_data/

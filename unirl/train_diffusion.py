@@ -43,6 +43,10 @@ def main(cfg: DictConfig) -> None:
     trainer.train(
         num_rollouts=int(cfg.get("num_rollouts", 100)),
         weight_sync_interval=int(cfg.get("weight_sync_interval", 1)),
+        checkpoint_dir=cfg.get("checkpoint_dir"),
+        checkpoint_interval=int(cfg.get("checkpoint_interval", 0)),
+        resume_checkpoint_dir=cfg.get("resume_checkpoint_dir"),
+        save_lora_checkpoint=bool(cfg.get("save_lora_checkpoint", True)),
     )
 
 
