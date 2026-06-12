@@ -125,5 +125,7 @@ execute_phase resume "${resume_extra[@]}"
 if [[ "$DRY_RUN" != 1 ]]; then
   test -f "$run_dir/resume/rollout-000001/checkpoint.pt"
   test -f "$run_dir/resume/rollout-000001/lora_adapter.pt"
+  python3 scripts/dgx_spark_report.py --limit 100
   echo "checkpoint_smoke_dir=$run_dir"
+  echo "report=local_runs/reports/latest.md"
 fi

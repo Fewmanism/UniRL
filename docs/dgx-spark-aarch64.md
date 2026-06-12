@@ -209,6 +209,8 @@ scripts/dgx_spark_checkpoint_smoke.sh --watch
 scripts/dgx_spark_status.sh
 scripts/dgx_spark_summarize_runs.py --limit 20
 scripts/dgx_spark_summarize_runs.py --limit 20 --format csv > outputs/dgx-spark-observe/summary.csv
+scripts/dgx_spark_report.py --limit 100
+scripts/dgx_spark_report.py --limit 20 --stdout
 scripts/dgx_spark_replay_run.py
 scripts/dgx_spark_replay_run.py outputs/dgx-spark-observe/20260611-205007-dgx-vllmomni-quick --watch --execute
 scripts/dgx_spark_clean.sh --dry-run
@@ -230,6 +232,12 @@ are written under `local_runs/checkpoints/` and ignored by git.
 exit codes, elapsed time, reward/loss/grad_norm, and peak GPU samples into a
 stable table/JSON/CSV. Use it after a run matrix to compare experiments without
 opening each `command.log` manually.
+
+`scripts/dgx_spark_report.py` builds a local Markdown experiment report from the
+same watcher data plus `local_runs/index.jsonl`. It writes dated reports and a
+`latest.md` pointer under `local_runs/reports/`, including executive summary,
+run table, failed runs, artifacts, registry details, and next actions. Matrix and
+checkpoint smoke scripts refresh this report automatically after successful runs.
 
 Full FSDP checkpoint/resume is available for the local trainside path through
 Hydra overrides consumed by `unirl.train_diffusion`:

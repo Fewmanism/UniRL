@@ -112,6 +112,21 @@ def fmt(value: Any, digits: int = 2) -> str:
     return str(value)
 
 
+def collect_runs(log_dir: Path, limit: int = 20) -> list[dict[str, Any]]:
+    rows: list[RunRow] = []
+    if log_dir.exists():
+        dirs = sorted(
+            [p.parent for p in log_dir.glob("*/summary.json")],
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        for run_dir in dirs[:limit]:
+            row = row_from_dir(run_dir)
+            if row is not None:
+                rows.append(row)
+    return [r.__dict__ for r in rows]
+
+
 def print_table(rows: list[RunRow]) -> None:
     headers = [
         "label",

@@ -75,8 +75,10 @@ if [[ "$DRY_RUN" != 1 ]]; then
   mkdir -p "$LOG_DIR"
   python3 scripts/dgx_spark_summarize_runs.py --log-dir "$LOG_DIR" --limit 100 --format csv > "$LOG_DIR/summary.csv"
   python3 scripts/dgx_spark_summarize_runs.py --log-dir "$LOG_DIR" --limit 20
+  python3 scripts/dgx_spark_report.py --log-dir "$LOG_DIR" --limit 100
   echo
   echo "summary_csv=$LOG_DIR/summary.csv"
+  echo "report=local_runs/reports/latest.md"
 fi
 
 exit "$status"
