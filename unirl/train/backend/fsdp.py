@@ -37,6 +37,7 @@ from unirl.train.fsdp_utils import (
     gather_state_dict,
     load_model_state_dict,
     lora_state_dict,
+    merge_lora_state_dict,
     trainable_params,
 )
 from unirl.train.inject import (
@@ -322,8 +323,11 @@ class FSDPBackend(Remote):
         adapter_path = os.path.join(path, "lora_adapter.pt")
         if not os.path.exists(adapter_path):
             raise FileNotFoundError(f"FSDPBackend.load_lora: adapter not found: {adapter_path}")
-        adapter_state = torch.load(adapter_path, map_location=self._device)
-        load_model_state_dict(self.model, adapter_state)
+        full_state = gather_state_dict(self.model)
+        if self._rank == 0:
+            adapter_state = torch.load(adapter_path, map_location="cpu")
+            full_state = merge_lora_state_dict(full_state, adapter_state)
+        load_model_state_dict(self.model, full_state)
 
     @distributed(dispatch_mode=Dispatch.BROADCAST)
     def load(self, path: str) -> None:

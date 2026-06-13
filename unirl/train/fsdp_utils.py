@@ -73,6 +73,23 @@ def lora_state_dict(
     return {k: v for k, v in full_sd.items() if _is_lora_key(k)}
 
 
+def merge_lora_state_dict(full_sd: StateDict, adapter_sd: StateDict) -> StateDict:
+    """Overlay adapter-only LoRA weights onto a full model state dict.
+
+    ``set_model_state_dict`` expects a complete model state for FSDP loading.
+    Adapter-only resumes therefore merge saved LoRA tensors into the freshly
+    initialized full state and then load the merged result.
+    """
+    merged = dict(full_sd)
+    missing = [key for key in adapter_sd if key not in merged]
+    if missing:
+        preview = ", ".join(missing[:8])
+        suffix = " ..." if len(missing) > 8 else ""
+        raise KeyError(f"LoRA adapter keys not present in model state: {preview}{suffix}")
+    merged.update(adapter_sd)
+    return merged
+
+
 def nft_state_dict(
     model: nn.Module,
     full_sd: Optional[StateDict] = None,
