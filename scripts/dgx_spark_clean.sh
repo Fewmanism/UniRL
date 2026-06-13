@@ -138,9 +138,9 @@ for line in out.splitlines():
         kill = True
     elif "raylet" in args or "gcs_server" in args:
         kill = True
-    elif "/.venv-sglang/bin/python" in args and "resource_tracker" in args:
+    elif "/.venv-sglang/bin/python" in args and ("resource_tracker" in args or "multiprocessing.spawn" in args):
         kill = True
-    elif "/.venv-vllm/bin/python" in args and "resource_tracker" in args:
+    elif "/.venv-vllm/bin/python" in args and ("resource_tracker" in args or "multiprocessing.spawn" in args):
         kill = True
     if kill:
         print(proc_pid)
