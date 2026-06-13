@@ -312,6 +312,20 @@ class FSDPBackend(Remote):
         torch.save(state, os.path.join(path, "lora_adapter.pt"))
 
     @distributed(dispatch_mode=Dispatch.BROADCAST)
+    def load_lora(self, path: str) -> None:
+        """Load default-adapter LoRA weights from ``path/lora_adapter.pt``.
+
+        This restores only model adapter weights. Optimizer, scheduler, and EMA
+        state are freshly initialized, making it a lightweight continuation mode
+        for rollout-engine experiments.
+        """
+        adapter_path = os.path.join(path, "lora_adapter.pt")
+        if not os.path.exists(adapter_path):
+            raise FileNotFoundError(f"FSDPBackend.load_lora: adapter not found: {adapter_path}")
+        adapter_state = torch.load(adapter_path, map_location=self._device)
+        load_model_state_dict(self.model, adapter_state)
+
+    @distributed(dispatch_mode=Dispatch.BROADCAST)
     def load(self, path: str) -> None:
         checkpoint_path = os.path.join(path, "checkpoint.pt")
         if not os.path.exists(checkpoint_path):

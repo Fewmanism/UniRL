@@ -250,11 +250,15 @@ Hydra overrides consumed by `unirl.train_diffusion`:
 - `+checkpoint_dir=...`
 - `+checkpoint_interval=N`
 - `+resume_checkpoint_dir=...`
+- `+resume_checkpoint_mode=full|lora`
 - `+checkpoint_mode=full|lora`
 
 `checkpoint_mode=lora` is intended for rollout-engine experiments such as
 VLLM-Omni where full 5GB FSDP checkpoints may add unnecessary memory pressure; it
 skips `checkpoint.pt` and writes only the lightweight `lora_adapter.pt`.
+`resume_checkpoint_mode=lora` loads that adapter-only file and starts optimizer /
+scheduler state fresh, which is useful for lightweight continuation but is not a
+bit-exact full training resume.
 
 Use `scripts/dgx_spark_replay_run.py` for command-level continuity as a complement:
 it reads a watcher `metadata.json`, prints the exact captured command, and can

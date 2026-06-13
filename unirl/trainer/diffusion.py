@@ -40,6 +40,16 @@ def _checkpoint_actions(checkpoint_mode: str, *, save_lora_checkpoint: bool) -> 
     raise ValueError(f"Unsupported checkpoint_mode={checkpoint_mode!r}; expected 'full' or 'lora'")
 
 
+def _checkpoint_load_actions(resume_checkpoint_mode: str) -> tuple[bool, bool]:
+    """Return whether to load full FSDP state and/or a LoRA adapter."""
+    mode = str(resume_checkpoint_mode or "full").lower()
+    if mode == "full":
+        return True, False
+    if mode == "lora":
+        return False, True
+    raise ValueError(f"Unsupported resume_checkpoint_mode={resume_checkpoint_mode!r}; expected 'full' or 'lora'")
+
+
 def _ref_aligned_prefix_len(decoded: Any, min_items: int) -> int:
     """Smallest sample count >= ``min_items`` landing on a TensorMeta ref boundary.
 
@@ -481,6 +491,7 @@ class DiffusionTrainer(BaseTrainer):
         checkpoint_dir: Optional[str] = None,
         checkpoint_interval: int = 0,
         resume_checkpoint_dir: Optional[str] = None,
+        resume_checkpoint_mode: str = "full",
         save_lora_checkpoint: bool = True,
         checkpoint_mode: str = "full",
     ) -> None:
@@ -493,7 +504,8 @@ class DiffusionTrainer(BaseTrainer):
         continuity. ``checkpoint_mode=full`` saves FSDP state via ``backend.save``;
         ``checkpoint_mode=lora`` skips the full state and only writes the default
         adapter through ``backend.save_lora``. ``resume_checkpoint_dir`` loads a
-        prior full checkpoint before the first rollout.
+        prior full checkpoint or LoRA adapter before the first rollout according
+        to ``resume_checkpoint_mode``.
 
         Deferred (out of scope for the first runnable trainer):
         evaluation cadence.
@@ -505,8 +517,12 @@ class DiffusionTrainer(BaseTrainer):
             save_lora_checkpoint=save_lora_checkpoint,
         )
         if resume_checkpoint_dir:
-            logger.info("Loading checkpoint from %s", resume_checkpoint_dir)
-            self.backend.load(str(resume_checkpoint_dir))
+            load_full, load_lora = _checkpoint_load_actions(resume_checkpoint_mode)
+            logger.info("Loading checkpoint from %s (mode=%s)", resume_checkpoint_dir, resume_checkpoint_mode)
+            if load_full:
+                self.backend.load(str(resume_checkpoint_dir))
+            if load_lora:
+                self.backend.load_lora(str(resume_checkpoint_dir))
         self._init_wandb(num_rollouts=num_rollouts)
         try:
             for rollout_id in range(num_rollouts):

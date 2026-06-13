@@ -46,6 +46,7 @@ def main(cfg: DictConfig) -> None:
         checkpoint_dir=cfg.get("checkpoint_dir"),
         checkpoint_interval=int(cfg.get("checkpoint_interval", 0)),
         resume_checkpoint_dir=cfg.get("resume_checkpoint_dir"),
+        resume_checkpoint_mode=str(cfg.get("resume_checkpoint_mode", "full")),
         save_lora_checkpoint=bool(cfg.get("save_lora_checkpoint", True)),
         checkpoint_mode=str(cfg.get("checkpoint_mode", "full")),
     )
