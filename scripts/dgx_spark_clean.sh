@@ -96,10 +96,61 @@ else
   echo 'bytecode removed'
 fi
 
+find_orphan_pids() {
+  python3 - <<'PY'
+import os
+import subprocess
+
+# Avoid killing this cleanup process, its parents, and Hermes shell wrappers whose
+# command line may contain words like "sglang" only because they launched us.
+self_pid = os.getpid()
+ancestors = {self_pid}
+pid = self_pid
+while True:
+    try:
+        with open(f"/proc/{pid}/stat") as fh:
+            ppid = int(fh.read().split()[3])
+    except Exception:
+        break
+    if ppid <= 1 or ppid in ancestors:
+        break
+    ancestors.add(ppid)
+    pid = ppid
+
+out = subprocess.check_output(["ps", "-eo", "pid=,comm=,args="], text=True, errors="replace")
+for line in out.splitlines():
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        pid_s, comm, args = line.split(None, 2)
+        proc_pid = int(pid_s)
+    except ValueError:
+        continue
+    if proc_pid in ancestors:
+        continue
+    if "dgx_spark_clean.sh" in args or "hermes" in args:
+        continue
+    kill = False
+    if "unirl.train_diffusion" in args:
+        kill = True
+    elif "sgl_diffusion::scheduler" in args:
+        kill = True
+    elif "raylet" in args or "gcs_server" in args:
+        kill = True
+    elif "/.venv-sglang/bin/python" in args and "resource_tracker" in args:
+        kill = True
+    elif "/.venv-vllm/bin/python" in args and "resource_tracker" in args:
+        kill = True
+    if kill:
+        print(proc_pid)
+PY
+}
+
 if [[ "$KILL_ORPHANS" == 1 ]]; then
   require_yes 'kill orphan UniRL/SGLang/vLLM processes'
   printf '\n== kill orphan training/engine processes ==\n'
-  mapfile -t pids < <(pgrep -f 'unirl.train_diffusion|sglang|vllm|sgl_diffusion::scheduler' || true)
+  mapfile -t pids < <(find_orphan_pids)
   if [[ ${#pids[@]} -eq 0 ]]; then
     echo 'none'
   else
@@ -107,7 +158,7 @@ if [[ "$KILL_ORPHANS" == 1 ]]; then
     if [[ "$DRY_RUN" != 1 ]]; then
       kill "${pids[@]}" || true
       sleep 3
-      mapfile -t still < <(pgrep -f 'unirl.train_diffusion|sglang|vllm' || true)
+      mapfile -t still < <(find_orphan_pids)
       [[ ${#still[@]} -eq 0 ]] || kill -9 "${still[@]}" || true
     fi
   fi
