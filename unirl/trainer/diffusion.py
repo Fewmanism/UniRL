@@ -24,6 +24,22 @@ from unirl.utils.hydra import parse_hydra_cfg, remote_hydra
 logger = logging.getLogger(__name__)
 
 
+def _checkpoint_actions(checkpoint_mode: str, *, save_lora_checkpoint: bool) -> tuple[bool, bool]:
+    """Return whether to save full FSDP state and LoRA adapter for a checkpoint.
+
+    ``full`` preserves the existing behavior: save a full backend checkpoint and
+    optionally export LoRA weights. ``lora`` is a lightweight local-fork mode for
+    rollout-engine experiments where full checkpointing can exceed Ray/host
+    memory; it always exports the LoRA adapter and skips the 5GB full state.
+    """
+    mode = str(checkpoint_mode or "full").lower()
+    if mode == "full":
+        return True, bool(save_lora_checkpoint)
+    if mode == "lora":
+        return False, True
+    raise ValueError(f"Unsupported checkpoint_mode={checkpoint_mode!r}; expected 'full' or 'lora'")
+
+
 def _ref_aligned_prefix_len(decoded: Any, min_items: int) -> int:
     """Smallest sample count >= ``min_items`` landing on a TensorMeta ref boundary.
 
@@ -466,6 +482,7 @@ class DiffusionTrainer(BaseTrainer):
         checkpoint_interval: int = 0,
         resume_checkpoint_dir: Optional[str] = None,
         save_lora_checkpoint: bool = True,
+        checkpoint_mode: str = "full",
     ) -> None:
         """Minimal training loop: ``num_rollouts`` iterations of ``train_step``.
 
@@ -473,16 +490,20 @@ class DiffusionTrainer(BaseTrainer):
         rollouts (fused into ``train_step``'s generate; no-op trainside).
 
         ``checkpoint_dir`` / ``checkpoint_interval`` provide local-fork experiment
-        continuity. Full FSDP state is saved via ``backend.save`` after matching
-        rollout ids; optional LoRA adapter export is written beside it for cheap
-        inspection/recovery. ``resume_checkpoint_dir`` loads a prior full
-        checkpoint before the first rollout.
+        continuity. ``checkpoint_mode=full`` saves FSDP state via ``backend.save``;
+        ``checkpoint_mode=lora`` skips the full state and only writes the default
+        adapter through ``backend.save_lora``. ``resume_checkpoint_dir`` loads a
+        prior full checkpoint before the first rollout.
 
         Deferred (out of scope for the first runnable trainer):
         evaluation cadence.
         """
         interval = max(1, weight_sync_interval)
         ckpt_every = max(0, int(checkpoint_interval or 0))
+        save_full, save_lora = _checkpoint_actions(
+            checkpoint_mode,
+            save_lora_checkpoint=save_lora_checkpoint,
+        )
         if resume_checkpoint_dir:
             logger.info("Loading checkpoint from %s", resume_checkpoint_dir)
             self.backend.load(str(resume_checkpoint_dir))
@@ -512,8 +533,9 @@ class DiffusionTrainer(BaseTrainer):
                 if checkpoint_dir and ckpt_every > 0 and (rollout_id + 1) % ckpt_every == 0:
                     ckpt_path = os.path.join(str(checkpoint_dir), f"rollout-{rollout_id + 1:06d}")
                     logger.info("Saving checkpoint to %s", ckpt_path)
-                    self.backend.save(ckpt_path)
-                    if save_lora_checkpoint:
+                    if save_full:
+                        self.backend.save(ckpt_path)
+                    if save_lora:
                         self.backend.save_lora(ckpt_path)
         finally:
             self._finish_wandb()
