@@ -294,6 +294,44 @@ python scripts/dgx_spark_watch.py \
 `outputs/` is ignored by git. The watcher redacts Hugging Face tokens in captured
 output, but the wrapped command should still avoid printing secrets.
 
+## Validated experiment results on GB10
+
+The local fork has been validated with `stabilityai/stable-diffusion-3.5-medium`
+on DGX Spark / GB10 / CUDA 13.0. The table below captures the practical support
+boundary from the local watcher reports.
+
+| Path | Status | Representative result | Notes |
+|---|---:|---|---|
+| `vllmomni scale10 + checkpoint_mode=lora` | Recommended | r100: 1140.6s, mean reward 0.7579, max temp 77C | Best default for long local runs. LoRA-only checkpoints at interval 20 saved 5 adapters and no `checkpoint.pt`. |
+| `vllmomni scale10 + resume_checkpoint_mode=lora` | Recommended | resume r10: 271.2s, mean reward 0.7953 | Loads `lora_adapter.pt`, starts optimizer/scheduler fresh, and can continue saving LoRA-only checkpoints. |
+| `vllmomni scale20 + checkpoint_mode=lora` | Short-run only | r5 OK, r10 OK, r20 Ray OOM | Higher short-run rewards, but memory/lifecycle pressure appears between r10 and r20. |
+| `trainside + checkpoint_mode=full` | Stable backup | r20 OK, full resume r10 OK | Slower but exact full-state checkpoints/resume work. |
+| `sglang` multi-rollout | Hold / debug later | scale4 r3 and scale10 r3 hit Ray OOM | Single short runs can work, but multi-rollout lifecycle is not stable enough for routine use. |
+| `vllmomni batch/prompts x2` | Works, not faster | bp4 r5 OK, mean reward 0.7712 | Doubling samples per rollout did not improve sample throughput on the tested setup. |
+
+Recommended day-to-day command shape:
+
+```bash
+scripts/dgx_spark_run_vllmomni_lora.sh --rollouts 100 --checkpoint-interval 20 --watch
+```
+
+Recommended lightweight continuation:
+
+```bash
+scripts/dgx_spark_run_vllmomni_lora.sh \
+  --rollouts 10 \
+  --resume-lora local_runs/checkpoints/<run>/rollout-000100 \
+  --checkpoint-interval 5 \
+  --watch
+```
+
+Use `scripts/dgx_spark_clean.sh --kill-orphans --yes` after failed engine runs.
+It is safe to keep only LoRA checkpoints for VLLM-Omni experiments; full
+`checkpoint.pt` files are mainly useful for trainside exact-resume validation.
+New LoRA checkpoints also write `lora_manifest.json` beside `lora_adapter.pt` with
+file size, SHA256, tensor count, and sorted adapter tensor keys for lightweight
+audit/resume checks.
+
 ## Known risks
 
 - x86_64 wheels are not usable on DGX Spark.

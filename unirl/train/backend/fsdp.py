@@ -39,6 +39,7 @@ from unirl.train.fsdp_utils import (
     lora_state_dict,
     merge_lora_state_dict,
     trainable_params,
+    write_lora_manifest,
 )
 from unirl.train.inject import (
     apply_deferred_ops,
@@ -311,6 +312,7 @@ class FSDPBackend(Remote):
             return
         os.makedirs(path, exist_ok=True)
         torch.save(state, os.path.join(path, "lora_adapter.pt"))
+        write_lora_manifest(path, state)
 
     @distributed(dispatch_mode=Dispatch.BROADCAST)
     def load_lora(self, path: str) -> None:

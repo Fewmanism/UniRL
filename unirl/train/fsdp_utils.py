@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+import os
 from typing import Dict, Iterator, List, Optional
 
 import torch
@@ -88,6 +91,30 @@ def merge_lora_state_dict(full_sd: StateDict, adapter_sd: StateDict) -> StateDic
         raise KeyError(f"LoRA adapter keys not present in model state: {preview}{suffix}")
     merged.update(adapter_sd)
     return merged
+
+
+def write_lora_manifest(path: str | os.PathLike[str], state: StateDict) -> Dict[str, object]:
+    """Write checksum metadata next to ``lora_adapter.pt``.
+
+    The manifest lets scripts validate a lightweight LoRA checkpoint by file
+    size, SHA256, and expected tensor names without loading it first.
+    """
+    adapter_path = os.path.join(os.fspath(path), "lora_adapter.pt")
+    with open(adapter_path, "rb") as f:
+        digest = hashlib.sha256(f.read()).hexdigest()
+    manifest: Dict[str, object] = {
+        "format": "unirl-lora-adapter-v1",
+        "adapter_file": "lora_adapter.pt",
+        "adapter_size_bytes": os.path.getsize(adapter_path),
+        "adapter_sha256": digest,
+        "num_tensors": len(state),
+        "keys": sorted(state.keys()),
+    }
+    manifest_path = os.path.join(os.fspath(path), "lora_manifest.json")
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2, sort_keys=True)
+        f.write("\n")
+    return manifest
 
 
 def nft_state_dict(
