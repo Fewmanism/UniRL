@@ -11,6 +11,7 @@ Options:
   --root DIR       Checkpoint root (default: local_runs/checkpoints)
   --dry-run        Report only (default)
   --delete-full    Delete checkpoint.pt files but keep lora_adapter.pt
+  --keep PATTERN    Keep matching checkpoint.pt path(s); shell glob, repeatable
   --yes            Required with --delete-full
   -h, --help       Show this help
 EOF
@@ -19,11 +20,13 @@ EOF
 ROOT=local_runs/checkpoints
 DELETE_FULL=0
 YES=0
+KEEP_PATTERNS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --root) ROOT="${2:?missing --root value}"; shift 2 ;;
     --dry-run) DELETE_FULL=0; shift ;;
     --delete-full) DELETE_FULL=1; shift ;;
+    --keep) KEEP_PATTERNS+=("${2:?missing --keep value}"); shift 2 ;;
     --yes) YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -37,6 +40,23 @@ fi
 
 mapfile -t full_files < <(find "$ROOT" -type f -name checkpoint.pt | sort)
 mapfile -t lora_files < <(find "$ROOT" -type f -name lora_adapter.pt | sort)
+
+kept_full_files=()
+delete_full_files=()
+for f in "${full_files[@]}"; do
+  keep=0
+  for pattern in "${KEEP_PATTERNS[@]}"; do
+    if [[ "$f" == $pattern ]]; then
+      keep=1
+      break
+    fi
+  done
+  if [[ "$keep" == 1 ]]; then
+    kept_full_files+=("$f")
+  else
+    delete_full_files+=("$f")
+  fi
+done
 
 lora_only=0
 for lora in "${lora_files[@]}"; do
@@ -63,12 +83,20 @@ printf 'lora adapters: %d\n' "${#lora_files[@]}"
 printf 'lora-only checkpoints: %d\n' "$lora_only"
 printf 'full checkpoint bytes: %s\n' "$full_bytes"
 printf 'lora adapter bytes: %s\n' "$lora_bytes"
+printf 'kept full checkpoint.pt files: %d\n' "${#kept_full_files[@]}"
 
 printf '\ndelete candidates (full checkpoint.pt files):\n'
-if [[ ${#full_files[@]} -eq 0 ]]; then
+if [[ ${#delete_full_files[@]} -eq 0 ]]; then
   printf 'none\n'
 else
-  printf '%s\n' "${full_files[@]}"
+  printf '%s\n' "${delete_full_files[@]}"
+fi
+
+printf '\nkept full checkpoint.pt files:\n'
+if [[ ${#kept_full_files[@]} -eq 0 ]]; then
+  printf 'none\n'
+else
+  printf '%s\n' "${kept_full_files[@]}"
 fi
 
 if [[ "$DELETE_FULL" == 1 ]]; then
@@ -76,8 +104,9 @@ if [[ "$DELETE_FULL" == 1 ]]; then
     echo "refusing to delete without --yes" >&2
     exit 2
   fi
-  for f in "${full_files[@]}"; do
+  for f in "${delete_full_files[@]}"; do
     rm -f -- "$f"
   done
-  printf '\ndeleted full checkpoint.pt files: %d\n' "${#full_files[@]}"
+  printf '\ndeleted full checkpoint.pt files: %d\n' "${#delete_full_files[@]}"
+  printf 'kept full checkpoint.pt files: %d\n' "${#kept_full_files[@]}"
 fi
