@@ -213,6 +213,8 @@ scripts/dgx_spark_report.py --limit 100
 scripts/dgx_spark_report.py --limit 20 --stdout
 scripts/dgx_spark_replay_run.py
 scripts/dgx_spark_replay_run.py outputs/dgx-spark-observe/20260611-205007-dgx-vllmomni-quick --watch --execute
+scripts/dgx_spark_checkpoint_cleanup.sh --dry-run
+scripts/dgx_spark_validate.sh --static-only
 scripts/dgx_spark_clean.sh --dry-run
 ```
 

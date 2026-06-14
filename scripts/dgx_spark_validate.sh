@@ -44,6 +44,7 @@ bash -n scripts/dgx_spark_clean.sh \
   scripts/dgx_spark_run_smoke.sh \
   scripts/dgx_spark_checkpoint_smoke.sh \
   scripts/dgx_spark_run_vllmomni_lora.sh \
+  scripts/dgx_spark_checkpoint_cleanup.sh \
   scripts/dgx_spark_validate.sh
 
 step "clean dry-run"
