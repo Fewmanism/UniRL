@@ -492,6 +492,7 @@ class DiffusionTrainer(BaseTrainer):
         checkpoint_interval: int = 0,
         resume_checkpoint_dir: Optional[str] = None,
         resume_checkpoint_mode: str = "full",
+        verify_lora_manifest: bool = True,
         save_lora_checkpoint: bool = True,
         checkpoint_mode: str = "full",
     ) -> None:
@@ -505,7 +506,8 @@ class DiffusionTrainer(BaseTrainer):
         ``checkpoint_mode=lora`` skips the full state and only writes the default
         adapter through ``backend.save_lora``. ``resume_checkpoint_dir`` loads a
         prior full checkpoint or LoRA adapter before the first rollout according
-        to ``resume_checkpoint_mode``.
+        to ``resume_checkpoint_mode``. LoRA resumes verify `lora_manifest.json`
+        by default when present.
 
         Deferred (out of scope for the first runnable trainer):
         evaluation cadence.
@@ -522,7 +524,7 @@ class DiffusionTrainer(BaseTrainer):
             if load_full:
                 self.backend.load(str(resume_checkpoint_dir))
             if load_lora:
-                self.backend.load_lora(str(resume_checkpoint_dir))
+                self.backend.load_lora(str(resume_checkpoint_dir), verify_manifest=verify_lora_manifest)
         self._init_wandb(num_rollouts=num_rollouts)
         try:
             for rollout_id in range(num_rollouts):

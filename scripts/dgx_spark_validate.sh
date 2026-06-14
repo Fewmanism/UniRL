@@ -37,7 +37,7 @@ fi
 step() { printf '\n== %s ==\n' "$*"; }
 
 step "checkpoint tests"
-"$PY" -m pytest tests/test_checkpoint_mode.py tests/test_lora_state_merge.py tests/test_lora_manifest.py -q
+"$PY" -m pytest tests/test_checkpoint_mode.py tests/test_lora_state_merge.py tests/test_lora_manifest.py tests/test_lora_manifest_cli.py -q
 
 step "shell syntax"
 bash -n scripts/dgx_spark_clean.sh \

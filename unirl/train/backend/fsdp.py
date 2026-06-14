@@ -39,6 +39,7 @@ from unirl.train.fsdp_utils import (
     lora_state_dict,
     merge_lora_state_dict,
     trainable_params,
+    verify_lora_manifest,
     write_lora_manifest,
 )
 from unirl.train.inject import (
@@ -315,16 +316,23 @@ class FSDPBackend(Remote):
         write_lora_manifest(path, state)
 
     @distributed(dispatch_mode=Dispatch.BROADCAST)
-    def load_lora(self, path: str) -> None:
+    def load_lora(self, path: str, *, verify_manifest: bool = True) -> None:
         """Load default-adapter LoRA weights from ``path/lora_adapter.pt``.
 
         This restores only model adapter weights. Optimizer, scheduler, and EMA
         state are freshly initialized, making it a lightweight continuation mode
-        for rollout-engine experiments.
+        for rollout-engine experiments. When ``verify_manifest`` is true and a
+        manifest exists, validate size/SHA/key metadata before loading.
         """
         adapter_path = os.path.join(path, "lora_adapter.pt")
         if not os.path.exists(adapter_path):
             raise FileNotFoundError(f"FSDPBackend.load_lora: adapter not found: {adapter_path}")
+        if verify_manifest:
+            manifest_path = os.path.join(path, "lora_manifest.json")
+            if os.path.exists(manifest_path):
+                verify_lora_manifest(path)
+            elif self._rank == 0:
+                logger.warning("FSDPBackend.load_lora: manifest not found, skipping verification: %s", manifest_path)
         full_state = gather_state_dict(self.model)
         if self._rank == 0:
             adapter_state = torch.load(adapter_path, map_location="cpu")

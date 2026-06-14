@@ -332,7 +332,7 @@ It is safe to keep only LoRA checkpoints for VLLM-Omni experiments; full
 `checkpoint.pt` files are mainly useful for trainside exact-resume validation.
 New LoRA checkpoints also write `lora_manifest.json` beside `lora_adapter.pt` with
 file size, SHA256, tensor count, and sorted adapter tensor keys for lightweight
-audit/resume checks.
+audit/resume checks. See `docs/dgx-spark-runbook.md` for the operational runbook.
 
 ## Known risks
 

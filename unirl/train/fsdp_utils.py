@@ -117,6 +117,35 @@ def write_lora_manifest(path: str | os.PathLike[str], state: StateDict) -> Dict[
     return manifest
 
 
+def verify_lora_manifest(path: str | os.PathLike[str]) -> Dict[str, object]:
+    """Validate ``lora_manifest.json`` against ``lora_adapter.pt``."""
+    root = os.fspath(path)
+    manifest_path = os.path.join(root, "lora_manifest.json")
+    adapter_path = os.path.join(root, "lora_adapter.pt")
+    if not os.path.exists(manifest_path):
+        raise FileNotFoundError(f"missing lora_manifest.json: {manifest_path}")
+    if not os.path.exists(adapter_path):
+        raise FileNotFoundError(f"missing lora_adapter.pt: {adapter_path}")
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        manifest = json.load(f)
+    if manifest.get("format") != "unirl-lora-adapter-v1":
+        raise ValueError(f"unsupported manifest format: {manifest.get('format')!r}")
+    size = os.path.getsize(adapter_path)
+    if manifest.get("adapter_size_bytes") != size:
+        raise ValueError(f"size mismatch: manifest={manifest.get('adapter_size_bytes')} actual={size}")
+    with open(adapter_path, "rb") as f:
+        digest = hashlib.sha256(f.read()).hexdigest()
+    if manifest.get("adapter_sha256") != digest:
+        raise ValueError("sha256 mismatch")
+    state = torch.load(adapter_path, map_location="cpu")
+    keys = sorted(state.keys())
+    if manifest.get("num_tensors") != len(keys):
+        raise ValueError(f"tensor count mismatch: manifest={manifest.get('num_tensors')} actual={len(keys)}")
+    if manifest.get("keys") != keys:
+        raise ValueError("tensor key mismatch")
+    return manifest
+
+
 def nft_state_dict(
     model: nn.Module,
     full_sd: Optional[StateDict] = None,
